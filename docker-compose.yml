@@ -13,7 +13,8 @@ services:
     environment:
       - PASSWORD=subin
     networks:
-      - mlflow-network   
+      mlflow-network:
+        ipv4_address: 192.168.0.20
   minio:
     image: minio/minio:latest
     container_name: minio
@@ -31,7 +32,8 @@ services:
     volumes:
       - ./minio_data:/data
     networks:
-      - mlflow-network
+      mlflow-network:
+        ipv4_address: 192.168.0.21
   # MLflow server
   mlflow:
     build: .
@@ -46,7 +48,7 @@ services:
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
     command: >
       mlflow server
-        --backend-store-uri mysql+pymysql://subin:subin_123@192.168.29.125:3306/mlflow_db
+        --backend-store-uri mysql+pymysql://subin:subin_123@10.0.16.171:3306/mlflow_db
         --default-artifact-root s3://mlflow-artifacts
         --host 0.0.0.0
         --port 5000
@@ -56,7 +58,8 @@ services:
       timeout: 5s
       retries: 12
     networks:
-      - mlflow-network
+      mlflow-network:
+        ipv4_address: 192.168.0.22
 
   # Nginx reverse proxy
   nginx:
@@ -78,11 +81,17 @@ services:
       timeout: 5s
       retries: 3
     networks:
-      - mlflow-network
+      mlflow-network:
+        ipv4_address: 192.168.0.23
 
 networks:
   mlflow-network:
     driver: bridge
+    ipam:
+      config:
+        - gateway: 192.168.0.1
+          subnet: 192.168.0.0/24
+      driver: default
 
 volumes:
   minio_data:
