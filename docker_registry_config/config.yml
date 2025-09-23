@@ -1,0 +1,25 @@
+version: 0.1
+log:
+  level: info
+  fields:
+    service: registry
+
+http:
+  addr: :5000
+  # Add relative URLs and path prefix support
+  relativeurls: true
+  # Optional: Add path prefix if you want the registry itself to be context-aware
+  # prefix: /registry
+
+storage:
+  cache:
+    blobdescriptor: inmemory
+  filesystem:
+    rootdirectory: /var/lib/registry
+  delete:
+    enabled: true
+
+# Optional: Add headers for better proxy support
+headers:
+  X-Content-Type-Options: [nosniff]
+  X-Frame-Options: [deny]

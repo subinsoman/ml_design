@@ -1,34 +1,110 @@
-version: "3.8"
+version: "3.3"
 
 services:
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+    restart: unless-stopped
+    environment:
+      OAUTH2_PROXY_PROVIDER: keycloak-oidc
+      OAUTH2_PROXY_CLIENT_ID: sixdee
+      OAUTH2_PROXY_CLIENT_SECRET: Y1Fe2ZIPX7hwB0SDIJNDjIOqj3HoDLN6
+      OAUTH2_PROXY_OIDC_ISSUER_URL: http://sts-421:8080/auth/realms/sixdee
+      OAUTH2_PROXY_REDIRECT_URL: http://sts-421:8080/oauth2/callback
+      OAUTH2_PROXY_LOGIN_URL: http://sts-421:8080/auth/realms/sixdee/protocol/openid-connect/auth
+      OAUTH2_PROXY_REDEEM_URL: http://sts-421:8080/auth/realms/sixdee/protocol/openid-connect/token
+      OAUTH2_PROXY_PROFILE_URL: http://sts-421:8080/auth/realms/sixdee/protocol/openid-connect/userinfo
+      OAUTH2_PROXY_LOGOUT_URL: "http://sts-421:8080/auth/realms/sixdee/protocol/openid-connect/logout?post_logout_redirect_uri=http://6dmagik:8080"
+      OAUTH2_PROXY_COOKIE_SECRET: JFcMwnf6TLflowoOumQ2RXP8tOXcwAd5II_WjhqE6Ss=
+      OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL: "true"
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_COOKIE_SECURE: "false"
+      OAUTH2_PROXY_COOKIE_HTTPONLY: "true"
+      OAUTH2_PROXY_COOKIE_NAME: "MAGIK_SESSION"
+      OAUTH2_PROXY_COOKIE_SAMESITE: "lax"
+      OAUTH2_PROXY_COOKIE_DOMAINS: "sts-421"
+      OAUTH2_PROXY_COOKIE_PATH: "/"
+      OAUTH2_PROXY_COOKIE_REFRESH: "1h"
+      OAUTH2_PROXY_COOKIE_EXPIRE: "0s"
+      OAUTH2_PROXY_PASS_ACCESS_TOKEN: "true"
+      OAUTH2_PROXY_PASS_ID_TOKEN: "true"
+      OAUTH2_PROXY_SCOPE: "openid profile email"
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: S256
+      OAUTH2_PROXY_UPSTREAMS: "http://seahorse:33321"
+      OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER: "true"
+      OAUTH2_PROXY_LOG_LEVEL: debug
+      OAUTH2_PROXY_POST_LOGOUT_REDIRECT_URI: "http://sts-421:8080/"  # Final redirect after full logout
+      OAUTH2_PROXY_BACKEND_LOGOUT_URL: "http://keycloak:8080/auth/realms/sixdee/protocol/openid-connect/logout?id_token_hint={id_token}&post_logout_redirect_uri=http://6dmagik:8080/logout-success"  # Dynamic provider logout with id_token
+      OAUTH2_PROXY_WHITELIST_DOMAINS: "sts-421:8080"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      default:
+        ipv4_address: 192.168.0.41
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.2
+    restart: unless-stopped
+    command: start-dev --hostname=sts-421 --http-relative-path=/auth  
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: true
+      KC_HOSTNAME: sts-421
+      KC_HOSTNAME_PORT: 8080
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HOSTNAME_STRICT: false
+      KC_PROXY_HEADERS: forwarded
+      KC_PROXY_ADDRESS_FORWARDING: true
+      KC_DB: mysql
+      KC_DB_URL: jdbc:mysql://10.0.16.171:3306/mlops_keycloak
+      KC_DB_USERNAME: subin
+      KC_DB_PASSWORD: subin_123
+      KC_FEATURES: hostname:v1
+    healthcheck:
+      test: ["CMD", "/opt/keycloak/bin/kc.sh", "show-config"]
+      interval: 30s
+      timeout: 10s
+      retries: 10    
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      default:
+        ipv4_address: 192.168.0.42
+        aliases:
+          - sts-421        
+
   code:
     image: codercom/code-server:latest
-    container_name: code
     restart: unless-stopped
-    ports:
-      - "9002:8080"   # Access in browser at http://localhost:8080
+
     volumes:
       - ./project:/home/coder/project/sample   # Mount local project folder
       - ./code_data:/home/coder/.local/share/code-server  # Persist extensions/settings
-    environment:
-      - PASSWORD=subin
+    command: ["code-server", "--bind-addr", "0.0.0.0:8080", "--auth", "none"]
     networks:
       default:
         ipv4_address: 192.168.0.20
   minio:
     image: minio/minio:latest
-    container_name: minio
     command: server /data --console-address ":9001" --address ":9000"
+    
     environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio123
+      MINIO_ROOT_USER: ""
+      MINIO_ROOT_PASSWORD: ""
       # Use 127.0.0.1 to match redirect URLs
       MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:8080/minio
-      # API endpoint via Nginx proxy
-      #MINIO_SERVER_URL: http://minio:9000/
-    ports:
-      - "9000:9000"   # API (keep for potential direct access or debugging)
-      - "9001:9001"
+      
     volumes:
       - ./minio_data:/data
     networks:
@@ -36,8 +112,7 @@ services:
         ipv4_address: 192.168.0.21
   # MLflow server
   mlflow:
-    build: .
-    container_name: mlflow_server
+    image: parthipa76/ml_flow-mlflow:v1
     ports:
       - "5000:5000"
     environment:
@@ -64,7 +139,6 @@ services:
   # Nginx reverse proxy
   nginx:
     image: nginx:alpine
-    container_name: nginx_proxy
     ports:
       - "8080:8080"
     volumes:
@@ -72,9 +146,8 @@ services:
       - ./nginx_logs:/var/log/nginx
       - ./nginx_includes:/etc/nginx/includes
     depends_on:
-      - mlflow
-      - minio
-      - code
+      keycloak:
+        condition: service_healthy 
     healthcheck:
       test: ["CMD", "nginx", "-t"]
       interval: 10s
@@ -112,6 +185,7 @@ services:
         ipv4_address: 192.168.0.5
     ports: []
     restart: always
+   
   frontend:
     depends_on:
       - documentation
@@ -138,6 +212,7 @@ services:
         ipv4_address: 192.168.0.7
     ports: []
     restart: always
+   
   library:
     image: quay.io/subin/seahorse-libraryservice:5.0.1
     networks:
@@ -147,6 +222,7 @@ services:
     restart: always
     volumes:
       - ./seahorse_library:/library
+    
   mail:
     image: quay.io/deepsense_io/seahorse-mail:1.4.3
     networks:
@@ -154,6 +230,7 @@ services:
         ipv4_address: 192.168.0.4
     ports: []
     restart: always
+    
   notebooks:
     depends_on:
       - rabbitmq
@@ -183,6 +260,7 @@ services:
     volumes:
       - ./seahorse_library:/library
       - ./seahorse_forwarding_kernel_logs:/home/jovyan/forwarding_kernel_logs
+   
   proxy:
     image: quay.io/deepsense_io/seahorse-proxy:1.4.3
     depends_on:
@@ -231,6 +309,7 @@ services:
     restart: always
     volumes:
       - ./certs:/opt/docker/certs
+    
   rabbitmq:
     environment:
       RABBITMQ_PASS: 1ElYfGNW
@@ -267,6 +346,7 @@ services:
         ipv4_address: 192.168.0.3
     ports: []
     restart: always
+ 
   sessionmanager:
     image: ashishtom6d/seahorse-sessionmanager:7.0.3_12122024
     depends_on:
@@ -308,6 +388,7 @@ services:
       - ./seahorse_spark_applications_logs:/spark_applications_logs:rw
       - ./seahorse_library:/library
       - ./seahorse_python_libs:/resources/python_lib
+   
   workflowmanager:
     depends_on:
       - database
@@ -330,6 +411,7 @@ services:
     restart: always
     volumes:
       - ./seahorse_jars:/resources/jars
+ 
   
   airflow-init:
     image: parthipa76/airflow-ml-latest:2.7.2
@@ -339,14 +421,20 @@ services:
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: mysql+mysqlconnector://subin:subin_123@10.0.16.171:3306/airflow
       AIRFLOW__CORE__FERNET_KEY: "G7v546f7T-jqQ4UKt5ioBT7OrlsfZzHWmpUKhW99f0s="
       AIRFLOW__WEBSERVER__SECRET_KEY: "JqY7FS6dT4tT-rToY3ZeUQ4jeOBtUv7hIsZ216vk8gd68fD8xD1hh17W6IVUA_vQ1Wa-SK6gYVgWiWvd4FbN-w"
+      # Disable authentication
+      AIRFLOW__WEBSERVER__AUTHENTICATE: "False"
+      AIRFLOW__WEBSERVER__RBAC: "False"
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.default"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./scripts:/opt/airflow/scripts
+      - ./airflow/webserver_config.py:/opt/airflow/webserver_config.py
     command: >
-      bash -c "airflow db init && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin123"
+      bash -c "airflow db init"
     networks:
       default:
         ipv4_address: 192.168.0.29
+   
 
         
   airflow:
@@ -358,13 +446,14 @@ services:
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: mysql+mysqlconnector://subin:subin_123@10.0.16.171:3306/airflow
       AIRFLOW__CORE__FERNET_KEY: "G7v546f7T-jqQ4UKt5ioBT7OrlsfZzHWmpUKhW99f0s="
       AIRFLOW__WEBSERVER__SECRET_KEY: "JqY7FS6dT4tT-rToY3ZeUQ4jeOBtUv7hIsZ216vk8gd68fD8xD1hh17W6IVUA_vQ1Wa-SK6gYVgWiWvd4FbN-w"
-      AIRFLOW__WEBSERVER__RBAC: "True"
-      # Add these additional webserver configurations
-      AIRFLOW__WEBSERVER__BASE_URL: "http://127.0.0.1:8080/airflow" 
+      AIRFLOW__WEBSERVER__BASE_URL: "http://127.0.0.1:8080/airflow"
       AIRFLOW__WEBSERVER__WEB_SERVER_PATH: "/airflow"
       AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX: "True"
       AIRFLOW__CORE__ENABLE_XCOM_PICKLING: "True"
-      AIRFLOW__API__AUTH_BACKEND: "airflow.api.auth.backend.basic_auth"
+
+      # Disable authentication - corrected settings
+      AIRFLOW__WEBSERVER__AUTH_BACKEND: "airflow.www.security.NoAuth"
+
       MLFLOW_TRACKING_URI: "http://mlflow:5000"
       MLFLOW_S3_ENDPOINT_URL: "http://mlflow:9000"
       AWS_ACCESS_KEY_ID: "minio"
@@ -373,17 +462,19 @@ services:
       AWS_S3_ADDRESSING_STYLE: "path"
     volumes:
       - ./dags:/opt/airflow/dags
-      - ./scripts:/opt/airflow/scripts              # Mount scripts directory
+      - ./scripts:/opt/airflow/scripts
       - /var/run/docker.sock:/var/run/docker.sock
       - ./airflow/airflow.cfg:/opt/airflow/airflow.cfg
+      - ./airflow/webserver_config.py:/opt/airflow/webserver_config.py
     ports:
-      - "8050:8080" 
+      - "8050:8080"
     depends_on:
-      - airflow-init  
+      - airflow-init
     networks:
       default:
-        ipv4_address: 192.168.0.30   
+        ipv4_address: 192.168.0.30
     command: webserver
+ 
     
   scheduler:
     image: parthipa76/airflow-ml-latest:2.7.2
@@ -394,11 +485,12 @@ services:
       AIRFLOW__CORE__SQL_ALCHEMY_CONN: mysql+mysqlconnector://subin:subin_123@10.0.16.171:3306/airflow
       AIRFLOW__CORE__FERNET_KEY: "G7v546f7T-jqQ4UKt5ioBT7OrlsfZzHWmpUKhW99f0s="
       AIRFLOW__WEBSERVER__SECRET_KEY: "JqY7FS6dT4tT-rToY3ZeUQ4jeOBtUv7hIsZ216vk8gd68fD8xD1hh17W6IVUA_vQ1Wa-SK6gYVgWiWvd4FbN-w"
-      # Add the same base URL configuration to scheduler
       AIRFLOW__WEBSERVER__BASE_URL: "http://0.0.0.0:8080/airflow"
       AIRFLOW__WEBSERVER__WEB_SERVER_PATH: "/airflow"
-      AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX: "True"
-      AIRFLOW__API__AUTH_BACKEND: "airflow.api.auth.backend.basic_auth"
+      
+      # Disable authentication - same settings as webserver
+      AIRFLOW__WEBSERVER__AUTH_BACKEND: "airflow.www.security.NoAuth"
+      
       MLFLOW_TRACKING_URI: "http://mlflow:5000"
       MLFLOW_S3_ENDPOINT_URL: "http://mlflow:9000"
       AWS_ACCESS_KEY_ID: "minio"
@@ -407,7 +499,7 @@ services:
       AWS_S3_ADDRESSING_STYLE: "path"
     volumes:
       - ./dags:/opt/airflow/dags
-      - ./scripts:/opt/airflow/scripts              # Mount scripts directory
+      - ./scripts:/opt/airflow/scripts
       - /var/run/docker.sock:/var/run/docker.sock
       - ./airflow/airflow.cfg:/opt/airflow/airflow.cfg
     depends_on:
@@ -418,7 +510,6 @@ services:
     command: scheduler
   registry:
     image: registry:2.8
-    container_name: docker-registry
     restart: unless-stopped
     ports:
       - "5076:5000"  # Keep direct access for Docker CLI
@@ -428,9 +519,9 @@ services:
     networks:
       default:
         ipv4_address: 192.168.0.33  
+      
   registry-ui:
     image: joxit/docker-registry-ui:2.5.7
-    container_name: docker-registry-ui
     restart: unless-stopped
     # Don't expose port directly, let nginx handle it
     environment:
@@ -449,7 +540,74 @@ services:
       - registry
     networks:
       default:
-        ipv4_address: 192.168.0.32     
+        ipv4_address: 192.168.0.32
+   
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      # make sure prometheus.yml is next to this compose file, or use absolute path
+      - ./prom/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus_data:/prometheus     # optional persistence for TSDB
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:9090/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      default:
+        ipv4_address: 192.168.0.52  
+   
+  pushgateway:
+    image: prom/pushgateway:latest
+    ports:
+      - "9091:9091"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:9091/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      default:
+        ipv4_address: 192.168.0.53  
+    
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      # Root URL with context path (e.g., http://localhost:3000/grafana)
+      - GF_SERVER_ROOT_URL=http://localhost:3000/grafana
+      # Enable serving from sub path
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      # Admin credentials
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+      # Enable anonymous access (no login required)
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      # Hide login form
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3000/grafana/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - prometheus
+    networks:
+      default:
+        ipv4_address: 192.168.0.54
+
 networks:
   default:
     ipam:
